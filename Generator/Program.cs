@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using Mono.Cecil;
 using Newtonsoft.Json;
 
@@ -38,7 +37,7 @@ namespace Generator
         public string BoundCode { get; set; }
         public TypeDefinition Definition { get; set; }
 
-        public string BoundName => Definition.Name + "Model";
+        public string BoundName => Definition.Name + "Description";
     }
 
     class MemberBinding
@@ -160,48 +159,255 @@ namespace Generator
                     .OrderBy (x => x.Parameters.Count)
                     .FirstOrDefault ();
 
-                var w = new StringWriter ();
-                if (fsharp)
-                    w.WriteLine($"type {type.BoundName} = ");
-                else
-                    w.Write($"public partial class {type.BoundName}");
                 var baseType = bh.Count > 1 ? bh[1] : null;
-                if (baseType != null)
-                    if (fsharp)
-                        w.WriteLine ($"    inherit {baseType.BoundName}");
-                    else
-                        w.WriteLine ($" : {baseType.BoundName}");
-                else
-                    w.WriteLine ();
-                if (!fsharp)
-                    w.WriteLine ("{");
 
                 //
                 // Properties
                 //
-                var allmembers = (from x in bh from y in x.Members select y).ToList ();
+                var allmembers = (from x in bh from y in x.Members select y).ToList();
 
-                foreach (var m in type.Members) {
-                    if (fsharp)
-                    {
-                        w.WriteLine($"    [< DefaultValue(false)>]");
-                        w.WriteLine($"    val public {m.Name} : {Name(m.BoundType)}");
-                    }
-                    else
-                        w.WriteLine($"\tpublic {Name(m.BoundType)} {m.Name} {{ get; }}");
-                }
-
+                var w = new StringWriter ();
                 var head = "";
-                //
-                // Constructor
-                //
+
                 if (fsharp)
                 {
-                    w.Write($"    new () = {{ }}");
-                }
+                    //
+                    // Type + Constructor
+                    //
+                    w.WriteLine($"/// Represents a {type.BoundName} in the view desription");
+                    w.WriteLine($"[<AllowNullLiteral>]");
+                    w.Write($"type {type.BoundName}(");
+                    head = "";
+                    foreach (var m in allmembers)
+                    {
+                        w.Write($"{head}?{m.LowerName}");
+                        head = ", ";
+                    }
+                    w.WriteLine($") = ");
+                    if (baseType != null)
+                    {
+                        w.Write($"    inherit {baseType.BoundName}(");
+                        head = "";
+                        foreach (var b in bh.Skip(1))
+                        {
+                            foreach (var m in b.Members)
+                            {
+                                w.Write($"{head}?{m.LowerName}={m.LowerName}");
+                                head = ", ";
+                            }
+                        }
+                        w.WriteLine($")");
+                    }
 
+                    foreach (var m in type.Members)
+                    {
+                        w.WriteLine($"");
+                        w.WriteLine($"    /// Gets the {m.Name} property of the {Name(m.BoundType)} in the view desription");
+                        var boundConstDefault = m.BoundConstDefault.Replace("default(", "Unchecked.defaultof<").Replace(")", ">");
+                        w.WriteLine($"    member val {m.Name} : {Name(m.BoundType)} = defaultArg {m.LowerName} {boundConstDefault}");
+                    }
+                    // With*
+                    //
+                    foreach (var m in allmembers)
+                    {
+                        var owner = bh.FirstOrDefault(x => x.Members.Contains(m));
+                        //w.WriteLine($"");
+                        //w.WriteLine($"    /// Adjusts the {m.Name} of the {type.BoundName} in the view desription");
+                        //w.WriteLine($"    abstract With{m.Name}: {m.LowerName}: {Name(m.BoundType)} -> {type.BoundName}");
+                        w.WriteLine($"");
+                        w.WriteLine($"    /// Adjusts the {m.Name} of the {type.BoundName} in the view desription");
+                        w.WriteLine($"    member this.With{m.Name}({m.LowerName}: {Name(m.BoundType)}) : {type.BoundName} =");
+                        w.Write($"        {type.BoundName}(");
+                        head = "";
+                        foreach (var o in allmembers)
+                        {
+                            var v = o == m ? m.LowerName : "this." + o.Name;
+                            w.Write($"{head}{o.LowerName}={v}");
+                            head = ", ";
+                        }
+                        w.WriteLine(")");
+                        //if (owner != type)
+                       // {
+                        //    w.WriteLine($"");
+                        //    w.WriteLine($"    /// Adjusts the {m.Name} of the {type.BoundName} in the view desription");
+                        //    w.WriteLine($"    override this.With{m.Name}({m.LowerName}: {Name(m.BoundType)}) : {owner.BoundName} =");
+                        //    w.WriteLine($"        (this.With{m.Name}({m.LowerName}) : {type.BoundName}) :> {owner.BoundName}");
+                       // }
+                    }
+
+                    //
+                    // Equality
+                    //
+
+                    w.WriteLine($"");
+                    w.WriteLine($"    /// Determines if two {type.BoundName} descriptions are equivalent");
+                    w.WriteLine($"    override this.Equals(that: obj) =");
+                    w.WriteLine($"        match that with");
+                    w.WriteLine($"        | null -> false");
+                    w.WriteLine($"        | :? {type.BoundName} as o ->");
+                    w.Write($"            ");
+                    if (allmembers.Count > 0)
+                    {
+                        head = "";
+                        foreach (var m in allmembers)
+                        {
+                            if (!string.IsNullOrEmpty(m.Equality))
+                            {
+                                var equality = m.Equality.Replace("==", "=");
+                                w.Write($"{head}{equality}");
+                            }
+                            else
+                            {
+                                w.Write($"{head}this.{m.Name} = o.{m.Name}");
+                            }
+                            head = " && ";
+                        }
+                    }
+                    else
+                    {
+                        w.Write($"true");
+                    }
+                    w.WriteLine();
+                    w.WriteLine($"        | _ -> false");
+
+                    //
+                    // Hash Code
+                    //
+
+                    w.WriteLine("");
+                    w.WriteLine($"    /// Compute a hash code for the {type.BoundName} description");
+                    w.WriteLine("    override this.GetHashCode() =");
+                    if (baseType != null)
+                        w.WriteLine($"        let mutable hc = base.GetHashCode()");
+                    else
+                        w.WriteLine($"        let mutable hc = 17");
+                    foreach (var m in type.Members)
+                    {
+                        var bt = ResolveGenericParameter(m.BoundType, h);
+                        if (bt.IsValueType)
+                            w.WriteLine($"        hc <- hc * 37 + this.{m.Name}.GetHashCode()");
+                        else
+                            w.WriteLine($"        hc <- hc * 37 + hash this.{m.Name}");
+                    }
+                    w.WriteLine("        hc");
+
+                    //
+                    // Creates
+                    //
+                    w.WriteLine("");
+                    w.WriteLine($"    /// Create the {t.FullName} from the view description");
+                    w.WriteLine($"    abstract Create{t.Name}: unit -> {t.FullName}");
+                    w.WriteLine("");
+                    w.WriteLine($"    /// Create the {t.FullName} from the view description");
+                    w.WriteLine($"    override this.Create{t.Name}() : {t.FullName} =");
+                    if (t.IsAbstract || ctor == null || ctor.Parameters.Count != 0)
+                    {
+                        w.WriteLine($"        raise (System.NotSupportedException(\"Cannot create {t.FullName} from \" + this.GetType().FullName))");
+                    }
+                    else
+                    {
+                        w.WriteLine($"        let target = new {t.FullName}()");
+                        w.WriteLine($"        this.Apply(target)");
+                        w.WriteLine($"        target");
+                        foreach (var b in bh.Skip(1))
+                        {
+                            w.WriteLine("");
+                            w.WriteLine($"    /// Create the {t.FullName} from the view description");
+                            w.WriteLine($"    override this.Create{b.Definition.Name}() : {b.Definition.FullName} = this.Create{t.Name}() :> _");
+                        }
+                    }
+
+                    //
+                    // Apply
+                    //
+                    var refToken = t.IsValueType ? "ref " : "";
+                    w.WriteLine("");
+                    w.WriteLine($"    /// Apply the description to a {t.FullName}");
+                    w.WriteLine($"    abstract Apply: target: {refToken}{t.FullName} -> unit");
+                    w.WriteLine("");
+                    w.WriteLine($"    /// Apply the description to a {t.FullName}");
+                    w.WriteLine($"    override this.Apply(target: {refToken}{t.FullName}) : unit =");
+                    if (baseType == null && type.Members.Count() == 0)
+                        w.WriteLine($"        ()");
+                    if (baseType != null)
+                    {
+                        var baseName = t.BaseType.FullName.Replace("`1", "").Replace("`2", "");
+                        w.WriteLine($"        base.Apply(target :> {baseName})");
+                    }
+                    foreach (var m in type.Members)
+                    {
+                        var bt = ResolveGenericParameter(m.BoundType, h);
+                        if (!string.IsNullOrEmpty(m.Apply))
+                        {
+                            w.WriteLine($"        {m.Apply}");
+                        }
+                        else if (GetListItemType(m.BoundType, h) is var etype && etype != null)
+                        {
+                            w.WriteLine($"        if (this.{m.Name} = null || this.{m.Name}.Count = 0) then");
+                            w.WriteLine($"            match target.{m.Name} with");
+                            w.WriteLine($"            | null -> ()");
+                            w.WriteLine($"            | {m.LowerName} -> {m.LowerName}.Clear() ");
+                            w.WriteLine($"        else");
+                            w.WriteLine($"            while (target.{m.Name}.Count > this.{m.Name}.Count) do target.{m.Name}.RemoveAt(target.{m.Name}.Count - 1)");
+                            w.WriteLine($"            let n = target.{m.Name}.Count;");
+                            w.WriteLine($"            for i in n .. this.{m.Name}.Count-1 do");
+                            w.WriteLine($"                target.{m.Name}.Insert(i, this.{m.Name}.[i].Create{etype.Name}())");
+                            w.WriteLine($"            for i in 0 .. n - 1 do");
+                            w.WriteLine($"                this.{m.Name}.[i].Apply(target.{m.Name}.[i])");
+                        }
+                        else
+                        {
+                            if (bindings.FindType(bt.FullName) is TypeBinding b)
+                            {
+                                if (bt.IsValueType)
+                                {
+                                    w.WriteLine($"        target.{m.Name} = this.{m.Name}.Create{bt.Name}()");
+                                }
+                                else
+                                {
+                                    w.WriteLine($"        if (this.{m.Name} <> Unchecked.defaultof<_>) then");
+                                    w.WriteLine($"            match target.{m.Name} with");
+                                    w.WriteLine($"            | :? {bt.FullName} as {m.LowerName} ->");
+                                    w.WriteLine($"                this.{m.Name}.Apply({m.LowerName})");
+                                    w.WriteLine($"            | _ ->");
+                                    w.WriteLine($"                target.{m.Name} <- this.{m.Name}.Create{bt.Name}()");
+                                    w.WriteLine($"        else");
+                                    w.WriteLine($"            target.{m.Name} <- null;");
+                                }
+                            }
+                            else
+                            {
+                                w.WriteLine($"        target.{m.Name} <- this.{m.Name}");
+                            }
+                        }
+                    }
+                    foreach (var b in bh.Skip(1))
+                    {
+                        w.WriteLine("");
+                        w.WriteLine($"    /// Apply the description to a {b.Definition.FullName}");
+                        w.WriteLine($"    override this.Apply(target: {b.Definition.FullName}) =");
+                        w.WriteLine($"         match target with");
+                        w.WriteLine($"         | :? {t.FullName} as t -> this.Apply(t)");
+                        w.WriteLine($"         | _ -> base.Apply(target)");
+                    }
+                }
                 else
                 {
+                    w.Write($"public partial class {type.BoundName}");
+                    if (baseType != null)
+                        w.WriteLine($" : {baseType.BoundName}");
+                    else
+                        w.WriteLine();
+                    w.WriteLine("{");
+
+                    foreach (var m in type.Members)
+                    {
+                        w.WriteLine($"\tpublic {Name(m.BoundType)} {m.Name} {{ get; }}");
+                    }
+
+                    //
+                    // Constructor
+                    //
                     w.Write($"\tpublic {type.BoundName}(");
                     foreach (var m in allmembers)
                     {
@@ -233,18 +439,10 @@ namespace Generator
                         w.WriteLine($"\t\t{m.Name} = {v};");
                     }
                     w.WriteLine("\t}");
-                }
-
-                //
-                // With*
-                //
-                if (fsharp)
-                {
-                    w.Write($"    // With*");
-                }
-
-                else
-                {
+                    
+                    //
+                    // With*
+                    //
                     foreach (var m in allmembers)
                     {
                         var owner = bh.FirstOrDefault(x => x.Members.Contains(m));
@@ -265,18 +463,11 @@ namespace Generator
                         }
                         w.WriteLine(");");
                     }
-                }
+                    
+                    //
+                    // Equality
+                    //
 
-                //
-                // Equality
-                //
-                if (fsharp)
-                {
-                    w.Write($"    // Equality");
-                }
-
-                else
-                {
                     w.WriteLine("\tpublic override bool Equals(object obj) {");
                     w.WriteLine($"\t\tif (obj == null || GetType() != obj.GetType()) return false;");
                     w.WriteLine($"\t\tvar o = ({type.BoundName})obj;");
@@ -299,18 +490,11 @@ namespace Generator
                         w.WriteLine("true;");
                     }
                     w.WriteLine("\t}");
-                }
 
-                //
-                // Hash Code
-                //
-                if (fsharp)
-                {
-                    w.Write($"    // GetHashCode");
-                }
+                    //
+                    // Hash Code
+                    //
 
-                else
-                {
                     w.WriteLine("\tpublic override int GetHashCode() {");
                     if (baseType != null)
                         w.WriteLine($"\t\tvar hash = base.GetHashCode();");
@@ -326,18 +510,10 @@ namespace Generator
                     }
                     w.WriteLine("\t\treturn hash;");
                     w.WriteLine("\t}");
-                }
 
-                //
-                // Creates
-                //
-                if (fsharp)
-                {
-                    w.Write($"    // Create*");
-                }
-
-                else
-                {
+                    //
+                    // Creates
+                    //
                     if (t.IsAbstract || ctor == null || ctor.Parameters.Count != 0)
                     {
                         w.WriteLine($"\tpublic virtual {t.FullName} Create{t.Name}() => throw new System.NotSupportedException(\"Cannot create {t.FullName} from \" + GetType().FullName);");
@@ -354,18 +530,10 @@ namespace Generator
                             w.WriteLine($"\tpublic override {b.Definition.FullName} Create{b.Definition.Name}() => Create{t.Name}();");
                         }
                     }
-                }
 
-                //
-                // Apply
-                //
-                if (fsharp)
-                {
-                    w.Write($"    // Apply*");
-                }
-
-                else
-                {
+                    //
+                    // Apply
+                    //
                     var refToken = t.IsValueType ? "ref " : "";
                     w.WriteLine($"\tpublic virtual void Apply({refToken}{t.FullName} target) {{");
                     if (baseType != null)
@@ -417,11 +585,9 @@ namespace Generator
                         w.WriteLine($"\t\telse base.Apply(target);");
                         w.WriteLine("\t}");
                     }
+                    w.WriteLine("}");
                 }
 
-                if (!fsharp)
-                    w.WriteLine ("}");
-                
                 type.BoundCode = w.ToString ();
             }
             catch (Exception ex) {
