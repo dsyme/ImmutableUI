@@ -171,6 +171,7 @@
             "members": [
                 {
                     "name": "Source",
+                    "unique": "ImageSource",
                     "default": "null"
                 },
                 {
@@ -350,6 +351,7 @@
             "members": [
                 {
                     "name": "Source",
+                    "unique": "WebSource",
                     "default": "null"
                 }
             ]
@@ -449,6 +451,7 @@
                 },
                 {
                     "name": "Detail",
+                    "unique": "TextDetail",
                     "default": "null"
                 },
                 {
@@ -458,6 +461,7 @@
                 },
                 {
                     "name": "DetailColor",
+                    "unique": "TextDetailColor",
                     "default": "Xamarin.Forms.Color.Default",
                     "constDefault": "default(Xamarin.Forms.Color)"
                 },
