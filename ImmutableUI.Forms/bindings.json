@@ -104,6 +104,10 @@
                 {
                     "name": "BorderColor",
                     "default": "Xamarin.Forms.Color.Default"
+                },
+                {
+                    "name": "TextColor",
+                    "default": "Xamarin.Forms.Color.Default"
                 }
             ]
         },

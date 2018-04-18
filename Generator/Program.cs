@@ -1,4 +1,6 @@
-﻿using System;
+﻿// C:\GitHub\dsyme\ImmutableUI>dotnet build Generator\Generator.csproj && dotnet  Generator\bin\Debug\netcoreapp2.0\Generator.dll ImmutableUI.Forms\bindings.json ..\Elmish.XamarinForms\Elmish.XamarinForms\DynamicXaml.fs && fsc -a -r:c:\Users\dsyme\.nuget\packages\xamarin.forms\2.5.1.444934\lib\netstandard1.0\Xamarin.Forms.Core.dll ..\Elmish.XamarinForms\Elmish.XamarinForms\DynamicXaml.fs
+
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
