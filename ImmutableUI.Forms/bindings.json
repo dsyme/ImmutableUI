@@ -2,7 +2,7 @@
     "assemblies": [
         "packages/xamarin.forms/2.5.1.444934/lib/netstandard1.0/Xamarin.Forms.Core.dll"
     ],
-    "outputNamespace": "InterpretedUI.Forms",
+    "outputNamespace": "Elmish.XamarinForms.DynamicViews",
     "types": [
         {
             "name": "Xamarin.Forms.Element",
@@ -14,8 +14,7 @@
             "members": [
                 {
                     "name": "BackgroundColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 },
                 {
                     "name": "IsVisible",
@@ -44,17 +43,17 @@
             "members": [
                 {
                     "name": "HorizontalOptions",
-                    "default": "default(Xamarin.Forms.LayoutOptions)",
+                    "default": "Unchecked.defaultof<Xamarin.Forms.LayoutOptions>",
                     "equality": "(this.HorizontalOptions.Alignment == o.HorizontalOptions.Alignment && this.HorizontalOptions.Expands == o.HorizontalOptions.Expands)"
                 },
                 {
                     "name": "VerticalOptions",
-                    "default": "default(Xamarin.Forms.LayoutOptions)",
+                    "default": "Unchecked.defaultof<Xamarin.Forms.LayoutOptions>",
                     "equality": "(this.VerticalOptions.Alignment == o.VerticalOptions.Alignment && this.VerticalOptions.Expands == o.VerticalOptions.Expands)"
                 },
                 {
                     "name": "Margin",
-                    "default": "default(Xamarin.Forms.Thickness)"
+                    "default": "Unchecked.defaultof<Xamarin.Forms.Thickness>"
                 }
             ]
         },
@@ -63,8 +62,7 @@
             "members": [
                 {
                     "name": "Color",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 }
             ]
         },
@@ -85,8 +83,7 @@
                 },
                 {
                     "name": "ContentLayout",
-                    "default": "new Xamarin.Forms.Button.ButtonContentLayout(Xamarin.Forms.Button.ButtonContentLayout.ImagePosition.Left, 10)",
-                    "constDefault": "default(Xamarin.Forms.Button.ButtonContentLayout)"
+                    "default": "null"
                 },
                 {
                     "name": "FontSize",
@@ -106,8 +103,7 @@
                 },
                 {
                     "name": "BorderColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 }
             ]
         },
@@ -130,7 +126,7 @@
             "members": [
                 {
                     "name": "Date",
-                    "default": "default(System.DateTime)"
+                    "default": "Unchecked.defaultof<System.DateTime>"
                 },
                 {
                     "name": "Format",
@@ -138,13 +134,11 @@
                 },
                 {
                     "name": "MinimumDate",
-                    "default": "new System.DateTime(1900, 1, 1)",
-                    "constDefault": "default(System.DateTime)"
+                    "default": "new System.DateTime(1900, 1, 1)"
                 },
                 {
                     "name": "MaximumDate",
-                    "default": "new System.DateTime(2100, 12, 31)",
-                    "constDefault": "default(System.DateTime)"
+                    "default": "new System.DateTime(2100, 12, 31)"
                 }
             ]
         },
@@ -153,8 +147,7 @@
             "members": [
                 {
                     "name": "OutlineColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 },
                 {
                     "name": "CornerRadius",
@@ -189,8 +182,7 @@
             "members": [
                 {
                     "name": "Keyboard",
-                    "default": "Xamarin.Forms.Keyboard.Default",
-                    "constDefault": "default(Xamarin.Forms.Keyboard)"
+                    "default": "Xamarin.Forms.Keyboard.Default"
                 }
             ]
         },
@@ -215,8 +207,7 @@
                 },
                 {
                     "name": "TextColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 }
             ]
         },
@@ -249,13 +240,11 @@
                 },
                 {
                     "name": "TextColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 },
                 {
                     "name": "PlaceholderColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 },
                 {
                     "name": "IsPassword",
@@ -292,8 +281,7 @@
                 },
                 {
                     "name": "TextColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 }
             ]
         },
@@ -306,7 +294,7 @@
                 },
                 {
                     "name": "Padding",
-                    "default": "default(Xamarin.Forms.Thickness)"
+                    "default": "Unchecked.defaultof<Xamarin.Forms.Thickness>"
                 }
             ]
         },
@@ -332,8 +320,7 @@
             "members": [
                 {
                     "name": "Time",
-                    "default": "new System.TimeSpan(0.0)",
-                    "constDefault": "default(System.TimeSpan)"
+                    "default": "new System.TimeSpan()"
                 },
                 {
                     "name": "Format",
@@ -341,8 +328,7 @@
                 },
                 {
                     "name": "TextColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 }
             ]
         },
@@ -365,7 +351,7 @@
                 },
                 {
                     "name": "Padding",
-                    "default": "default(Xamarin.Forms.Thickness)"
+                    "default": "Unchecked.defaultof<Xamarin.Forms.Thickness>"
                 }
             ]
         },
@@ -456,14 +442,12 @@
                 },
                 {
                     "name": "TextColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 },
                 {
                     "name": "DetailColor",
                     "unique": "TextDetailColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 },
                 {
                     "name": "Command",
@@ -514,8 +498,7 @@
                 },
                 {
                     "name": "SeparatorColor",
-                    "default": "Xamarin.Forms.Color.Default",
-                    "constDefault": "default(Xamarin.Forms.Color)"
+                    "default": "Xamarin.Forms.Color.Default"
                 },
                 {
                     "name": "HasUnevenRows",

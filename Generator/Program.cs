@@ -46,8 +46,6 @@ namespace Generator
         public string Name { get; set; }
         public string Unique { get; set; }
         public string Default { get; set; }
-        public string ConstDefault { get; set; }
-        public string Apply { get; set; }
         public string Equality { get; set; }
 
         // Output
@@ -61,7 +59,6 @@ namespace Generator
         public string UniqueName => string.IsNullOrEmpty(Unique) ? Name : Unique;
         public string LowerUniqueName => char.ToLowerInvariant (UniqueName[0]) + UniqueName.Substring (1);
 
-        public string BoundConstDefault => string.IsNullOrEmpty(ConstDefault) ? Default : ConstDefault;
     }
 
     class Program
@@ -156,39 +153,54 @@ namespace Generator
             w.WriteLine();
             w.WriteLine("#nowarn \"67\" // cast always holds");
             w.WriteLine();
+            w.WriteLine("open System");
+            w.WriteLine("open System.Diagnostics");
+            w.WriteLine();
 
             w.WriteLine($"/// A description of a visual element");
             w.WriteLine($"[<AllowNullLiteral>]");
-            w.WriteLine($"type XamlElement(targetType: System.Type, create: (unit -> obj), apply: (XamlElement -> obj -> unit), attribs: Map<string, obj>) = ");
+            w.WriteLine($"type XamlElement(targetType: Type, create: (unit -> obj), apply: (XamlElement option -> XamlElement -> obj -> unit), attribs: Map<string, obj>) = ");
             w.WriteLine();
             w.WriteLine($"    /// Get the type created by the visual element");
             w.WriteLine($"    member x.TargetType = targetType");
             w.WriteLine();
             w.WriteLine($"    /// Get the attributes of the visual element");
+            w.WriteLine($"    [<DebuggerBrowsable(DebuggerBrowsableState.RootHidden)>]");
             w.WriteLine($"    member x.Attributes = attribs");
             w.WriteLine();
             w.WriteLine($"    /// Apply the description to a visual element");
-            w.WriteLine($"    member x.Apply (target: obj) = apply x target");
+            w.WriteLine($"    member x.Apply (target: obj) = apply None x target");
+            w.WriteLine();
+            w.WriteLine($"    /// Apply a different description to a similar visual element");
+            w.WriteLine($"    [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]");
+            w.WriteLine($"    member x.ApplyMethod = apply");
+            w.WriteLine();
+            w.WriteLine($"    /// Incrementally apply a description to a visual element");
+            w.WriteLine($"    member x.ApplyIncremental(prev: XamlElement, target: obj) = apply (Some prev) x target");
+            w.WriteLine();
+            w.WriteLine($"    /// Apply a different description to a similar visual element");
+            w.WriteLine($"    [<DebuggerBrowsable(DebuggerBrowsableState.Never)>]");
+            w.WriteLine($"    member x.CreateMethod = create");
             w.WriteLine();
             w.WriteLine($"    /// Produce a new visual element with an adjusted attribute");
             w.WriteLine($"    member x.WithAttribute(name: string, value: obj) = XamlElement(targetType, create, apply, x.Attributes.Add(name, value))");
-            var allMembersInAllTypesGroupedByName = (from type in bindings.Types from y in type.Members select y).ToList().GroupBy(y => y.UniqueName);
-            foreach (var ms in allMembersInAllTypesGroupedByName)
-            {
-                var m = ms.First();
-                w.WriteLine();
-                w.WriteLine($"    /// Get the {m.UniqueName} property in the visual element");
-                var boundConstDefault = m.BoundConstDefault.Replace("default(", "Unchecked.defaultof<").Replace(")", ">");
-                w.WriteLine("    member __." + m.UniqueName + " = match attribs.TryFind(\"" + m.UniqueName + "\") with Some v -> unbox<" + GetName(bindings, m.BoundType, null) + ">(v) | None -> " + boundConstDefault);
-            }
-            foreach (var ms in allMembersInAllTypesGroupedByName)
-            {
-                var m = ms.First();
-                w.WriteLine();
-                w.WriteLine($"    /// Adjusts the {m.UniqueName} property in the visual element");
-                w.WriteLine("    member __.With" + m.UniqueName + "(value: " + GetName(bindings, m.BoundType, null) + ") = XamlElement(targetType, create, apply, attribs.Add(\"" + m.UniqueName + "\", box value))");
-            }
+            w.WriteLine();
+            w.WriteLine($"    /// Produce a visual element from a visual element for a different type");
+            w.WriteLine($"    member x.Inherit(newTargetType, newCreate, newApply, newAttribs) = ");
+            w.WriteLine($"        let combinedAttribs = Map.ofArray(Array.append(Map.toArray attribs) newAttribs)");
+            w.WriteLine($"        XamlElement(newTargetType, newCreate, (fun prevOpt source target -> apply prevOpt source target; newApply prevOpt source target), combinedAttribs)");
+            w.WriteLine();
 
+            w.WriteLine($"    /// Produce a new visual element with an adjusted attribute");
+            w.WriteLine($"[<AutoOpen>]");
+            w.WriteLine($"module XamlElementExtensions = ");
+            w.WriteLine();
+            w.WriteLine($"    type XamlElement with");
+            w.WriteLine($"        /// Create the UI element from the view description");
+            w.WriteLine($"        member x.Create() : obj =");
+            w.WriteLine($"            let target = x.CreateMethod()");
+            w.WriteLine($"            x.Apply(target)");
+            w.WriteLine($"            target");
             foreach (var type in bindings.Types)
             {
                 var t = type.Definition;
@@ -199,19 +211,44 @@ namespace Generator
                     .FirstOrDefault();
 
                 w.WriteLine();
-                w.WriteLine($"    /// Create a {t.FullName} from the view description");
-                w.WriteLine($"    member x.Create{t.Name}() : {t.FullName} = (x.Create() :?> {t.FullName})");
+                w.WriteLine($"        /// Create a {t.FullName} from the view description");
+                w.WriteLine($"        member x.CreateAs{t.Name}() : {t.FullName} = (x.Create() :?> {t.FullName})");
             }
-
+            var allMembersInAllTypesGroupedByName = (from type in bindings.Types from y in type.Members select y).ToList().GroupBy(y => y.UniqueName);
+            foreach (var ms in allMembersInAllTypesGroupedByName)
+            {
+                var m = ms.First();
+                w.WriteLine();
+                w.WriteLine($"        /// Get the {m.UniqueName} property in the visual element");
+                w.WriteLine("        member x." + m.UniqueName + " = match x.Attributes.TryFind(\"" + m.UniqueName + "\") with Some v -> unbox<" + GetName(bindings, m.BoundType, null) + ">(v) | None -> " + m.Default);
+            }
+            foreach (var ms in allMembersInAllTypesGroupedByName)
+            {
+                var m = ms.First();
+                w.WriteLine();
+                w.WriteLine($"        /// Try to get the {m.UniqueName} property in the visual element");
+                w.WriteLine("        member x.Try" + m.UniqueName + " = match x.Attributes.TryFind(\"" + m.UniqueName + "\") with Some v -> Some(unbox<" + GetName(bindings, m.BoundType, null) + ">(v)) | None -> None");
+            }
+            foreach (var ms in allMembersInAllTypesGroupedByName)
+            {
+                var m = ms.First();
+                w.WriteLine();
+                w.WriteLine($"        /// Adjusts the {m.UniqueName} property in the visual element");
+                w.WriteLine("        member x.With" + m.UniqueName + "(value: " + GetName(bindings, m.BoundType, null) + ") = XamlElement(x.TargetType, x.CreateMethod, x.ApplyMethod, x.Attributes.Add(\"" + m.UniqueName + "\", box value))");
+            }
             w.WriteLine();
-            w.WriteLine($"    /// Create the UI element from the view description");
-            w.WriteLine($"    member x.Create() : obj =");
-            w.WriteLine($"        let target = create()");
-            w.WriteLine($"        x.Apply(target)");
-            w.WriteLine($"        target");
-
+            foreach (var ms in allMembersInAllTypesGroupedByName)
+            {
+                var m = ms.First();
+                w.WriteLine();
+                w.WriteLine($"    /// Adjusts the {m.UniqueName} property in the visual element");
+                w.WriteLine("    let with" + m.UniqueName + " (value: " + GetName(bindings, m.BoundType, null) + ") (x: XamlElement) = x.With" + m.UniqueName + "(value)");
+                w.WriteLine();
+                w.WriteLine($"    /// Adjusts the {m.UniqueName} property in the visual element");
+                w.WriteLine("    let " + m.LowerUniqueName + " (value: " + GetName(bindings, m.BoundType, null) + ") (x: XamlElement) = x.With" + m.UniqueName + "(value)");
+            }
             w.WriteLine();
-            w.WriteLine($"type Xaml() = ");
+            w.WriteLine("type Xaml() =");
             foreach (var type in bindings.Types)
             {
                 var t = type.Definition;
@@ -253,6 +290,7 @@ namespace Generator
                     .OrderBy(x => x.Parameters.Count)
                     .FirstOrDefault();
 
+                w.WriteLine();
                 w.WriteLine($"        let create () =");
                 if (!t.IsAbstract && ctor != null && ctor.Parameters.Count == 0)
                 {
@@ -262,33 +300,55 @@ namespace Generator
                 {
                     w.WriteLine($"            failwith \"can't create {t.FullName}\"");
                 }
-                w.WriteLine($"        let apply (this: XamlElement) (target:obj) = ");
-                //var refToken = t.IsValueType ? "ref " : "";
+                w.WriteLine();
+                w.WriteLine($"        let apply (prevOpt: XamlElement option) (source: XamlElement) (target:obj) = ");
+
                 if (baseType == null && type.Members.Count() == 0)
+                {
                     w.WriteLine($"            ()");
+                }
                 else
                 {
                     w.WriteLine($"            let target = (target :?> {t.FullName})");
                     foreach (var m in allmembers)
                     {
                         var bt = ResolveGenericParameter(m.BoundType, h);
-                        if (!string.IsNullOrEmpty(m.Apply))
+                        if (GetListItemType(m.BoundType, h) is var etype && etype != null)
                         {
-                            w.WriteLine($"            {m.Apply}");
-                        }
-                        else if (GetListItemType(m.BoundType, h) is var etype && etype != null)
-                        {
-                            w.WriteLine($"            if (this.{m.UniqueName} = null || this.{m.UniqueName}.Count = 0) then");
+                            w.WriteLine($"            if (source.{m.UniqueName} = null || source.{m.UniqueName}.Count = 0) then");
                             w.WriteLine($"                match target.{m.Name} with");
                             w.WriteLine($"                | null -> ()");
                             w.WriteLine($"                | {m.LowerUniqueName} -> {m.LowerUniqueName}.Clear() ");
                             w.WriteLine($"            else");
-                            w.WriteLine($"                while (target.{m.Name}.Count > this.{m.UniqueName}.Count) do target.{m.Name}.RemoveAt(target.{m.Name}.Count - 1)");
+                            w.WriteLine($"                // Remove the excess children");
+                            w.WriteLine($"                while (target.{m.Name}.Count > source.{m.UniqueName}.Count) do");
+                            w.WriteLine($"                    target.{m.Name}.RemoveAt(target.{m.Name}.Count - 1)");
+                            w.WriteLine();
+                            w.WriteLine($"                // Count the existing children");
                             w.WriteLine($"                let n = target.{m.Name}.Count;");
-                            w.WriteLine($"                for i in n .. this.{m.UniqueName}.Count-1 do");
-                            w.WriteLine($"                    target.{m.Name}.Insert(i, this.{m.UniqueName}.[i].Create{etype.Name}())");
-                            w.WriteLine($"                for i in 0 .. n - 1 do");
-                            w.WriteLine($"                    this.{m.UniqueName}.[i].Apply(target.{m.Name}.[i])");
+                            w.WriteLine();
+                            w.WriteLine($"                // Adjust the existing children and create the new children");
+                            w.WriteLine($"                for i in 0 .. source.{m.UniqueName}.Count-1 do");
+                            w.WriteLine($"                    let newChild = source.{m.UniqueName}.[i]");
+                            w.WriteLine($"                    let prevChildOpt = match prevOpt with None -> None | Some prev -> match prev.Try{m.UniqueName} with None -> None | Some coll when i < coll.Count && i < n -> Some coll.[i] | _ -> None");
+                            w.WriteLine($"                    let prevChildOpt, targetChild = ");
+                            w.WriteLine($"                        if (match prevChildOpt with None -> true | Some prevChild -> not (obj.ReferenceEquals(prevChild, newChild))) then");
+                            w.WriteLine($"                            let mustCreate = (i >= n || match prevChildOpt with None -> true | Some prevChild -> newChild.TargetType <> prevChild.TargetType)");
+                            w.WriteLine($"                            if mustCreate then");
+                            w.WriteLine($"                                let targetChild = newChild.CreateAs{etype.Name}()");
+                            w.WriteLine($"                                if i >= n then");
+                            w.WriteLine($"                                    target.{m.Name}.Insert(i, targetChild)");
+                            w.WriteLine($"                                else");
+                            w.WriteLine($"                                    target.{m.Name}.[i] <- targetChild");
+                            w.WriteLine($"                                None, targetChild");
+                            w.WriteLine($"                            else");
+                            w.WriteLine($"                                let targetChild = target.{m.Name}.[i]");
+                            w.WriteLine($"                                newChild.ApplyIncremental(prevChildOpt.Value, targetChild)");
+                            w.WriteLine($"                                prevChildOpt, targetChild");
+                            w.WriteLine($"                        else");
+                            w.WriteLine($"                            prevChildOpt, target.{m.Name}.[i]");
+                            w.WriteLine($"                    // note, setting attached properties should go here");
+                            w.WriteLine($"                    ()");
                         }
                         else
                         {
@@ -296,23 +356,37 @@ namespace Generator
                             {
                                 if (bt.IsValueType)
                                 {
-                                    w.WriteLine($"            target.{m.Name} = this.{m.UniqueName}.Create{bt.Name}()");
+                                    w.WriteLine($"            let prevChildOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.UniqueName}");
+                                    w.WriteLine($"            match prevChildOpt, source.Try{m.UniqueName} with");
+                                    w.WriteLine($"            // For structured objects, the only caching is based on reference equality");
+                                    w.WriteLine($"            | Some prevChild, Some newChild when obj.ReferenceEquals(prevChild, newChild) -> ()");
+                                    w.WriteLine($"            | _, Some newChild ->");
+                                    w.WriteLine($"                target.{m.Name} <- newChild.CreateAs{bt.Name}()");
+                                    w.WriteLine($"            | _, None ->");
+                                    w.WriteLine($"                target.{m.Name} <- Unchecked.defaultof<_>");
                                 }
                                 else
                                 {
-                                    w.WriteLine($"            if (this.{m.UniqueName} <> Unchecked.defaultof<_>) then");
-                                    w.WriteLine($"                match target.{m.Name} with");
-                                    w.WriteLine($"                | :? {bt.FullName} as {m.LowerUniqueName} ->");
-                                    w.WriteLine($"                    this.{m.UniqueName}.Apply({m.LowerUniqueName})");
-                                    w.WriteLine($"                | _ ->");
-                                    w.WriteLine($"                    target.{m.Name} <- this.{m.UniqueName}.Create{bt.Name}()");
-                                    w.WriteLine($"            else");
+                                    w.WriteLine($"            let prevChildOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.UniqueName}");
+                                    w.WriteLine($"            match prevChildOpt, source.Try{m.UniqueName} with");
+                                    w.WriteLine($"            // For structured objects, the only caching is based on reference equality");
+                                    w.WriteLine($"            | Some prevChild, Some newChild when obj.ReferenceEquals(prevChild, newChild) -> ()");
+                                    w.WriteLine($"            | Some prevChild, Some newChild ->");
+                                    w.WriteLine($"                newChild.ApplyIncremental(prevChild, target.{m.Name})");
+                                    w.WriteLine($"            | None, Some newChild ->");
+                                    w.WriteLine($"                target.{m.Name} <- newChild.CreateAs{bt.Name}()");
+                                    w.WriteLine($"            | _, None ->");
                                     w.WriteLine($"                target.{m.Name} <- null;");
                                 }
                             }
                             else
                             {
-                                w.WriteLine($"            target.{m.Name} <- this.{m.UniqueName}");
+                                w.WriteLine($"            let prevValueOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.UniqueName}");
+                                w.WriteLine($"            match prevValueOpt, source.Try{m.UniqueName} with");
+                                w.WriteLine($"            | Some prevValue, Some value when prevValue = value-> ()");
+                                w.WriteLine($"            | _, Some value -> target.{m.Name} <- value");
+                                w.WriteLine($"            | Some _, None -> target.{m.Name} <- {m.Default} // TODO: not always perfect, should set back to original default?");
+                                w.WriteLine($"            | None, None -> ()");
                             }
                         }
                     }
@@ -320,38 +394,28 @@ namespace Generator
                                 
                 w.WriteLine($"        new XamlElement(typeof<{t.FullName}>, create, apply, Map.ofArray attribs)");
 
-                /*
-                 //
-                                // Creates
-                                //
-                                w.WriteLine("");
-                                w.WriteLine($"    /// Create the {t.FullName} from the view description");
-                                w.WriteLine($"    abstract Create{t.Name}: unit -> {t.FullName}");
-                                w.WriteLine("");
-                                w.WriteLine($"    /// Create the {t.FullName} from the view description");
-                                w.WriteLine($"    override this.Create{t.Name}() : {t.FullName} =");
-                                if (t.IsAbstract || ctor == null || ctor.Parameters.Count != 0)
-                                {
-                                    w.WriteLine($"        raise (System.NotSupportedException(\"Cannot create {t.FullName} from \" + this.GetType().FullName))");
-                                }
-                                else
-                                {
-                                    w.WriteLine($"        let target = new {t.FullName}()");
-                                    w.WriteLine($"        this.Apply(target)");
-                                    w.WriteLine($"        target");
-                                    foreach (var b in bh.Skip(1))
-                                    {
-                                        w.WriteLine("");
-                                        w.WriteLine($"    /// Create the {t.FullName} from the view description");
-                                        w.WriteLine($"    override this.Create{b.Definition.Name}() : {b.Definition.FullName} = this.Create{t.Name}() :> _");
-                                    }
-                                }
+            }
+            w.WriteLine($"[<AutoOpen>]");
+            w.WriteLine($"module XamlCreateExtensions = ");
+            foreach (var type in bindings.Types)
+            {
+                var t = type.Definition;
+                var h = GetHierarchy(type.Definition).ToList();
+                var bh = h.Select(x => bindings.Types.FirstOrDefault(y => y.Name == x.Item2.FullName))
+                            .Where(x => x != null)
+                            .ToList();
 
-                                //
-                                // Apply
-                                //
-                            }
-                            */
+                var ctor = t.Methods
+                    .Where(x => x.IsConstructor && x.IsPublic)
+                    .OrderBy(x => x.Parameters.Count)
+                    .FirstOrDefault();
+
+                if (!t.IsAbstract && ctor != null && ctor.Parameters.Count == 0)
+                {
+                    w.WriteLine();
+                    w.WriteLine($"    /// Specifies a {t.Name} in the view description, initially with default attributes");
+                    w.WriteLine($"    let {Char.ToLower(t.Name[0])}{t.Name.Substring(1)} = Xaml.{t.Name}()");
+                }
             }
             return w.ToString ();
         }
