@@ -22,9 +22,9 @@ namespace Generator
         public TypeDefinition GetTypeDefinition(string name) =>
             (from a in AssemblyDefinitions
              from m in a.Modules
-             from t in m.Types
-             where t.FullName == name
-             select t).First();
+             from tdef in m.Types
+             where tdef.FullName == name
+             select tdef).First();
 
         public TypeBinding FindType (string name) => Types.FirstOrDefault (x => x.Name == name);
     }
@@ -46,26 +46,115 @@ namespace Generator
     {
         // Input
         public string Name { get; set; }
-        public string Unique { get; set; }
+        public string UniqueName { get; set; }
+        public string ShortName { get; set; }
         public string Default { get; set; }
         public string Equality { get; set; }
+        public string Conv { get; set; }
+        public string ModelType { get; set; }
+        public string ElementType { get; set; }
+        public string InputType { get; set; }
+        public List<MemberBinding> Attached { get; set; }
 
         // Output
         public MemberReference Definition { get; set; }
 
         public TypeReference BoundType =>
-            (Definition is PropertyDefinition p) ?
-                p.PropertyType : 
-                ((EventDefinition)Definition).EventType;
+            (Definition is PropertyDefinition p) 
+              ? p.PropertyType 
+              : ((EventDefinition)Definition).EventType;
 
-        public string UniqueName => string.IsNullOrEmpty(Unique) ? Name : Unique;
-        public string LowerUniqueName => char.ToLowerInvariant (UniqueName[0]) + UniqueName.Substring (1);
+        public string BoundUniqueName => string.IsNullOrEmpty(UniqueName) ? Name : UniqueName;
+        public string LowerBoundUniqueName => char.ToLowerInvariant (BoundUniqueName[0]) + BoundUniqueName.Substring (1);
+        public string BoundShortName => string.IsNullOrEmpty(ShortName) ? Name : ShortName;
+        public string LowerBoundShortName => char.ToLowerInvariant(BoundShortName[0]) + BoundShortName.Substring(1);
+        public string GetInputType(Bindings bindings, IEnumerable<Tuple<TypeReference, TypeDefinition>> hierarchy)
+        {
+            if (!string.IsNullOrWhiteSpace(InputType))
+            {
+                return InputType;
+            }
+            return this.GetModelType(bindings, hierarchy);
+        }
+        public string GetModelType(Bindings bindings, IEnumerable<Tuple<TypeReference, TypeDefinition>> hierarchy)
+        {
+            if (!string.IsNullOrWhiteSpace(ModelType))
+            {
+                return ModelType;
+            }
+            return GetModelTypeInner(bindings, this.BoundType, hierarchy);
+        }
+        public static string GetModelTypeInner(Bindings bindings, TypeReference tref, IEnumerable<Tuple<TypeReference, TypeDefinition>> hierarchy)
+        {
+            if (tref.IsGenericParameter)
+            {
+                if (hierarchy != null)
+                {
+                    var r = Program.ResolveGenericParameter(tref, hierarchy);
+                    return GetModelTypeInner(bindings, r, hierarchy);
+                }
+                else
+                {
+                    return "XamlElement";
+                }
+            }
+            if (tref.IsGenericInstance)
+            {
+                var n = tref.Name.Substring(0, tref.Name.IndexOf('`'));
+                var ns = tref.Namespace;
+                if (tref.IsNested)
+                {
+                    n = tref.DeclaringType.Name + "." + n;
+                    ns = tref.DeclaringType.Namespace;
+                }
+                var args = string.Join(", ", ((GenericInstanceType)tref).GenericArguments.Select(s => GetModelTypeInner(bindings, s, hierarchy)));
+                return $"{ns}.{n}<{args}>";
+            }
+            switch (tref.FullName)
+            {
+                case "System.String": return "string";
+                case "System.Boolean": return "bool";
+                case "System.Int32": return "int";
+                case "System.Double": return "double";
+                case "System.Single": return "single";
+                default:
+                    if (bindings.Types.FirstOrDefault(x => x.Name == tref.FullName) is TypeBinding tb)
+                        return tb.BoundName;
+                    return tref.FullName.Replace('/', '.');
+            }
+        }
+        public string GetElementType(IEnumerable<Tuple<TypeReference, TypeDefinition>> hierarchy)
+        {
+            if (!string.IsNullOrWhiteSpace(ElementType))
+            {
+                return ElementType;
+            }
+            return GetElementTypeInner(this.BoundType, hierarchy);
+        }
+        static string GetElementTypeInner(TypeReference tref, IEnumerable<Tuple<TypeReference, TypeDefinition>> hierarchy)
+        {
+            var r = Program.ResolveGenericParameter(tref, hierarchy);
+            if (r == null)
+                return null;
+            if (r.FullName == "System.String")
+                return null;
+            if (r.Name == "IList`1" && r.IsGenericInstance)
+            {
+                var args = ((GenericInstanceType)r).GenericArguments;
+                var elementType = Program.ResolveGenericParameter(args[0], hierarchy);
+                return elementType.Name;
+            }
+            else
+            {
+                var bs = r.Resolve().Interfaces;
+                return bs.Select(b => GetElementTypeInner(b.InterfaceType, hierarchy)).FirstOrDefault(b => b != null);
+            }
+        }
 
     }
 
     class Program
     {
-        static string nl => Environment.NewLine;
         static int Main(string[] args)
         {
             try {
@@ -107,58 +196,18 @@ namespace Generator
             }
         }
 
-        static string GetName(Bindings bindings, TypeReference tref, IEnumerable<Tuple<TypeReference, TypeDefinition>> h)
-        {
-            if (tref.IsGenericParameter)
-            {
-                if (h != null)
-                {
-                    var r = ResolveGenericParameter(tref, h);
-                    return GetName(bindings, r, h);
-                }
-                else
-                {
-                    return "XamlElement";
-                }
-            }
-            if (tref.IsGenericInstance)
-            {
-                var n = tref.Name.Substring(0, tref.Name.IndexOf('`'));
-                var ns = tref.Namespace;
-                if (tref.IsNested)
-                {
-                    n = tref.DeclaringType.Name + "." + n;
-                    ns = tref.DeclaringType.Namespace;
-                }
-                var args = string.Join(", ", ((GenericInstanceType)tref).GenericArguments.Select(s => GetName(bindings, s, h)));
-                return $"{ns}.{n}<{args}>";
-            }
-            switch (tref.FullName)
-            {
-                case "System.String": return "string";
-                case "System.Boolean": return "bool";
-                case "System.Int32": return "int";
-                case "System.Double": return "double";
-                case "System.Single": return "single";
-                default:
-                    if (bindings.Types.FirstOrDefault(x => x.Name == tref.FullName) is TypeBinding tb)
-                        return tb.BoundName;
-                    return tref.FullName.Replace('/', '.');
-            }
-        }
         static string BindTypes (Bindings bindings)
         {
             var w = new StringWriter();
             var head = "";
 
-            w.WriteLine("namespace " + bindings.OutputNamespace);
+            w.WriteLine("namespace rec " + bindings.OutputNamespace);
             w.WriteLine();
             w.WriteLine("#nowarn \"67\" // cast always holds");
             w.WriteLine();
             w.WriteLine("open System");
             w.WriteLine("open System.Diagnostics");
             w.WriteLine();
-
             w.WriteLine($"/// A description of a visual element");
             w.WriteLine($"[<AllowNullLiteral>]");
             w.WriteLine($"type XamlElement(targetType: Type, create: (unit -> obj), apply: (XamlElement option -> XamlElement -> obj -> unit), attribs: Map<string, obj>) = ");
@@ -205,102 +254,123 @@ namespace Generator
             w.WriteLine($"            target");
             foreach (var type in bindings.Types)
             {
-                var t = type.Definition;
-                var h = GetHierarchy(type.Definition).ToList();
-                var ctor = t.Methods
+                var tdef = type.Definition;
+                var hierarchy = GetHierarchy(type.Definition).ToList();
+                var ctor = tdef.Methods
                     .Where(x => x.IsConstructor && x.IsPublic)
                     .OrderBy(x => x.Parameters.Count)
                     .FirstOrDefault();
 
                 w.WriteLine();
-                w.WriteLine($"        /// Create a {t.FullName} from the view description");
-                w.WriteLine($"        member x.CreateAs{t.Name}() : {t.FullName} = (x.Create() :?> {t.FullName})");
+                w.WriteLine($"        /// Create a {tdef.FullName} from the view description");
+                w.WriteLine($"        member x.CreateAs{tdef.Name}() : {tdef.FullName} = (x.Create() :?> {tdef.FullName})");
             }
-            var allMembersInAllTypesGroupedByName = (from type in bindings.Types from y in type.Members select y).ToList().GroupBy(y => y.UniqueName);
+            var allMembersInAllTypes = new List<MemberBinding>();
+            foreach (var type in bindings.Types)
+            {
+                if (type.Members != null)
+                {
+                    foreach (var y in type.Members)
+                    {
+                        allMembersInAllTypes.Add(y);
+                        if (y.Attached != null)
+                        {
+                            foreach (var ap in y.Attached)
+                                allMembersInAllTypes.Add(ap);
+                        }
+                    }
+                }
+            }
+            var allMembersInAllTypesGroupedByName = allMembersInAllTypes.GroupBy(y => y.BoundUniqueName);
+            /*            foreach (var ms in allMembersInAllTypesGroupedByName)
+                        {
+                            var m = ms.First();
+                            w.WriteLine();
+                            w.WriteLine($"        /// Get the {m.BoundUniqueName} property in the visual element");
+                            w.WriteLine("        member x." + m.BoundUniqueName + " = match x.Attributes.TryFind(\"" + m.BoundUniqueName + "\") with Some v -> unbox<" + GetModelType(bindings, m.BoundType, null) + ">(v) | None -> " + m.Default);
+                        }
+                        */
             foreach (var ms in allMembersInAllTypesGroupedByName)
             {
                 var m = ms.First();
                 w.WriteLine();
-                w.WriteLine($"        /// Get the {m.UniqueName} property in the visual element");
-                w.WriteLine("        member x." + m.UniqueName + " = match x.Attributes.TryFind(\"" + m.UniqueName + "\") with Some v -> unbox<" + GetName(bindings, m.BoundType, null) + ">(v) | None -> " + m.Default);
+                w.WriteLine($"        /// Try to get the {m.BoundUniqueName} property in the visual element");
+                var modelType = m.GetModelType(bindings, null);
+                w.WriteLine("        member x.Try" + m.BoundUniqueName + " = match x.Attributes.TryFind(\"" + m.BoundUniqueName + "\") with Some v -> Some(unbox<" + modelType + ">(v)) | None -> None");
             }
             foreach (var ms in allMembersInAllTypesGroupedByName)
             {
                 var m = ms.First();
                 w.WriteLine();
-                w.WriteLine($"        /// Try to get the {m.UniqueName} property in the visual element");
-                w.WriteLine("        member x.Try" + m.UniqueName + " = match x.Attributes.TryFind(\"" + m.UniqueName + "\") with Some v -> Some(unbox<" + GetName(bindings, m.BoundType, null) + ">(v)) | None -> None");
-            }
-            foreach (var ms in allMembersInAllTypesGroupedByName)
-            {
-                var m = ms.First();
-                w.WriteLine();
-                w.WriteLine($"        /// Adjusts the {m.UniqueName} property in the visual element");
-                w.WriteLine("        member x.With" + m.UniqueName + "(value: " + GetName(bindings, m.BoundType, null) + ") = XamlElement(x.TargetType, x.CreateMethod, x.ApplyMethod, x.Attributes.Add(\"" + m.UniqueName + "\", box value))");
+                w.WriteLine($"        /// Adjusts the {m.BoundUniqueName} property in the visual element");
+                var conv = string.IsNullOrWhiteSpace(m.Conv) ? "" : m.Conv;
+                var inputType = m.GetInputType(bindings, null);
+                w.WriteLine("        member x.With" + m.BoundUniqueName + "(value: " + inputType + ") = XamlElement(x.TargetType, x.CreateMethod, x.ApplyMethod, x.Attributes.Add(\"" + m.BoundUniqueName + "\", box (" + conv + "(value))))");
             }
             w.WriteLine();
             foreach (var ms in allMembersInAllTypesGroupedByName)
             {
                 var m = ms.First();
+                var inputType = m.GetInputType(bindings, null);
                 w.WriteLine();
-                w.WriteLine($"    /// Adjusts the {m.UniqueName} property in the visual element");
-                w.WriteLine("    let with" + m.UniqueName + " (value: " + GetName(bindings, m.BoundType, null) + ") (x: XamlElement) = x.With" + m.UniqueName + "(value)");
+                w.WriteLine($"    /// Adjusts the {m.BoundUniqueName} property in the visual element");
+                w.WriteLine("    let with" + m.BoundUniqueName + " (value: " + inputType + ") (x: XamlElement) = x.With" + m.BoundUniqueName + "(value)");
                 w.WriteLine();
-                w.WriteLine($"    /// Adjusts the {m.UniqueName} property in the visual element");
-                w.WriteLine("    let " + m.LowerUniqueName + " (value: " + GetName(bindings, m.BoundType, null) + ") (x: XamlElement) = x.With" + m.UniqueName + "(value)");
+                w.WriteLine($"    /// Adjusts the {m.BoundUniqueName} property in the visual element");
+                w.WriteLine("    let " + m.LowerBoundUniqueName + " (value: " + inputType + ") (x: XamlElement) = x.With" + m.BoundUniqueName + "(value)");
             }
             w.WriteLine();
             w.WriteLine("type Xaml() =");
             foreach (var type in bindings.Types)
             {
-                var t = type.Definition;
-                var h = GetHierarchy(type.Definition).ToList();
-                var bh = h.Select(x => bindings.Types.FirstOrDefault(y => y.Name == x.Item2.FullName))
-                            .Where(x => x != null)
-                            .ToList();
+                var tdef = type.Definition;
+                var hierarchy = GetHierarchy(type.Definition).ToList();
+                var boundHierarchy = 
+                    hierarchy.Select(x => bindings.Types.FirstOrDefault(y => y.Name == x.Item2.FullName))
+                    .Where(x => x != null)
+                    .ToList();
 
 
-                var baseType = bh.Count > 1 ? bh[1] : null;
+                var baseType = boundHierarchy.Count > 1 ? boundHierarchy[1] : null;
 
-                //
-                // Properties
-                //
-                var allmembers = (from x in bh from y in x.Members select y).ToList();
+                // All properties and events apart from the attached ones
+                var allDirectMembers = (from x in boundHierarchy from y in x.Members select y).ToList();
 
-                //
-                // Constructor
-                //
+                // Emit the constructor
                 w.WriteLine();
-                w.WriteLine($"    /// Describes a {t.Name} in the view");
-                w.Write($"    static member {t.Name}(");
+                w.WriteLine($"    /// Describes a {tdef.Name} in the view");
+                w.Write($"    static member {tdef.Name}(");
                 head = "";
-                foreach (var m in allmembers)
+                foreach (var m in allDirectMembers)
                 {
-                    w.Write($"{head}?{m.LowerUniqueName}: {GetName(bindings, m.BoundType, null)}");
+                    var inputType = m.GetInputType(bindings, null);
+
+                    w.Write($"{head}?{m.LowerBoundShortName}: {inputType}");
                     head = ", ";
                 }
                 w.WriteLine($") = ");
                 w.WriteLine($"        let attribs = [| ");
-                foreach (var m in allmembers)
+                foreach (var m in allDirectMembers)
                 {
-                    w.WriteLine("            match " + m.LowerUniqueName + " with | None -> () | Some v -> yield (\"" + m.UniqueName + "\"" + $", box v) ");
+                    var conv = string.IsNullOrWhiteSpace(m.Conv) ? "" : m.Conv;
+                    w.WriteLine("            match " + m.LowerBoundShortName + " with None -> () | Some v -> yield (\"" + m.BoundUniqueName + "\"" + $", box (" + conv + "(v))) ");
                 }
                 w.WriteLine($"          |]");
 
-                var ctor = t.Methods
+                var ctor = tdef.Methods
                     .Where(x => x.IsConstructor && x.IsPublic)
                     .OrderBy(x => x.Parameters.Count)
                     .FirstOrDefault();
 
                 w.WriteLine();
                 w.WriteLine($"        let create () =");
-                if (!t.IsAbstract && ctor != null && ctor.Parameters.Count == 0)
+                if (!tdef.IsAbstract && ctor != null && ctor.Parameters.Count == 0)
                 {
-                    w.WriteLine($"            box (new {t.FullName}())");
+                    w.WriteLine($"            box (new {tdef.FullName}())");
                 }
                 else
                 {
-                    w.WriteLine($"            failwith \"can't create {t.FullName}\"");
+                    w.WriteLine($"            failwith \"can'tdef create {tdef.FullName}\"");
                 }
                 w.WriteLine();
                 w.WriteLine($"        let apply (prevOpt: XamlElement option) (source: XamlElement) (target:obj) = ");
@@ -311,33 +381,36 @@ namespace Generator
                 }
                 else
                 {
-                    w.WriteLine($"            let target = (target :?> {t.FullName})");
-                    foreach (var m in allmembers)
+                    w.WriteLine($"            let target = (target :?> {tdef.FullName})");
+                    foreach (var m in allDirectMembers)
                     {
-                        var bt = ResolveGenericParameter(m.BoundType, h);
-                        if (GetListItemType(m.BoundType, h) is var etype && etype != null)
+                        var bt = ResolveGenericParameter(m.BoundType, hierarchy);
+                        string elementType = m.GetElementType(hierarchy);
+                        if (elementType != null)
                         {
-                            w.WriteLine($"            if (source.{m.UniqueName} = null || source.{m.UniqueName}.Count = 0) then");
+                            w.WriteLine($"            match source.Try{m.BoundUniqueName} with");
+                            w.WriteLine($"            | Some coll when coll <> null && coll.Length > 0 ->");
+                            w.WriteLine($"              if (coll = null || coll.Length = 0) then");
                             w.WriteLine($"                match target.{m.Name} with");
                             w.WriteLine($"                | null -> ()");
-                            w.WriteLine($"                | {m.LowerUniqueName} -> {m.LowerUniqueName}.Clear() ");
-                            w.WriteLine($"            else");
+                            w.WriteLine($"                | targetColl -> targetColl.Clear() ");
+                            w.WriteLine($"              else");
                             w.WriteLine($"                // Remove the excess children");
-                            w.WriteLine($"                while (target.{m.Name}.Count > source.{m.UniqueName}.Count) do");
+                            w.WriteLine($"                while (target.{m.Name}.Count > coll.Length) do");
                             w.WriteLine($"                    target.{m.Name}.RemoveAt(target.{m.Name}.Count - 1)");
                             w.WriteLine();
                             w.WriteLine($"                // Count the existing children");
                             w.WriteLine($"                let n = target.{m.Name}.Count;");
                             w.WriteLine();
                             w.WriteLine($"                // Adjust the existing children and create the new children");
-                            w.WriteLine($"                for i in 0 .. source.{m.UniqueName}.Count-1 do");
-                            w.WriteLine($"                    let newChild = source.{m.UniqueName}.[i]");
-                            w.WriteLine($"                    let prevChildOpt = match prevOpt with None -> None | Some prev -> match prev.Try{m.UniqueName} with None -> None | Some coll when i < coll.Count && i < n -> Some coll.[i] | _ -> None");
+                            w.WriteLine($"                for i in 0 .. coll.Length-1 do");
+                            w.WriteLine($"                    let newChild = coll.[i]");
+                            w.WriteLine($"                    let prevChildOpt = match prevOpt with None -> None | Some prev -> match prev.Try{m.BoundUniqueName} with None -> None | Some coll when i < coll.Length && i < n -> Some coll.[i] | _ -> None");
                             w.WriteLine($"                    let prevChildOpt, targetChild = ");
                             w.WriteLine($"                        if (match prevChildOpt with None -> true | Some prevChild -> not (obj.ReferenceEquals(prevChild, newChild))) then");
                             w.WriteLine($"                            let mustCreate = (i >= n || match prevChildOpt with None -> true | Some prevChild -> newChild.TargetType <> prevChild.TargetType)");
                             w.WriteLine($"                            if mustCreate then");
-                            w.WriteLine($"                                let targetChild = newChild.CreateAs{etype.Name}()");
+                            w.WriteLine($"                                let targetChild = newChild.CreateAs{elementType}()");
                             w.WriteLine($"                                if i >= n then");
                             w.WriteLine($"                                    target.{m.Name}.Insert(i, targetChild)");
                             w.WriteLine($"                                else");
@@ -349,8 +422,20 @@ namespace Generator
                             w.WriteLine($"                                prevChildOpt, targetChild");
                             w.WriteLine($"                        else");
                             w.WriteLine($"                            prevChildOpt, target.{m.Name}.[i]");
-                            w.WriteLine($"                    // note, setting attached properties should go here");
+                            if (m.Attached != null)
+                            {
+                                foreach (var ap in m.Attached)
+                                {
+                                    w.WriteLine($"                    // Adjust the attached properties");
+                                    w.WriteLine($"                    match (match prevChildOpt with None -> None | Some prevChild -> prevChild.Try{ap.BoundUniqueName}), newChild.Try{ap.BoundUniqueName} with");
+                                    w.WriteLine($"                    | Some prev, Some v when prev = v -> ()");
+                                    w.WriteLine($"                    | _, Some v -> {tdef.FullName}.Set{ap.Name}(targetChild, v)");
+                                    w.WriteLine($"                    | Some _, None -> {tdef.FullName}.Set{ap.Name}(targetChild, {ap.Default}) // TODO: not always perfect, should set back to original default?");
+                                    w.WriteLine($"                    | _ -> ()");
+                                }
+                            }
                             w.WriteLine($"                    ()");
+                            w.WriteLine($"            | _ -> ()");
                         }
                         else
                         {
@@ -358,8 +443,8 @@ namespace Generator
                             {
                                 if (bt.IsValueType)
                                 {
-                                    w.WriteLine($"            let prevChildOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.UniqueName}");
-                                    w.WriteLine($"            match prevChildOpt, source.Try{m.UniqueName} with");
+                                    w.WriteLine($"            let prevChildOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.BoundUniqueName}");
+                                    w.WriteLine($"            match prevChildOpt, source.Try{m.BoundUniqueName} with");
                                     w.WriteLine($"            // For structured objects, the only caching is based on reference equality");
                                     w.WriteLine($"            | Some prevChild, Some newChild when obj.ReferenceEquals(prevChild, newChild) -> ()");
                                     w.WriteLine($"            | _, Some newChild ->");
@@ -369,8 +454,8 @@ namespace Generator
                                 }
                                 else
                                 {
-                                    w.WriteLine($"            let prevChildOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.UniqueName}");
-                                    w.WriteLine($"            match prevChildOpt, source.Try{m.UniqueName} with");
+                                    w.WriteLine($"            let prevChildOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.BoundUniqueName}");
+                                    w.WriteLine($"            match prevChildOpt, source.Try{m.BoundUniqueName} with");
                                     w.WriteLine($"            // For structured objects, the only caching is based on reference equality");
                                     w.WriteLine($"            | Some prevChild, Some newChild when obj.ReferenceEquals(prevChild, newChild) -> ()");
                                     w.WriteLine($"            | Some prevChild, Some newChild ->");
@@ -381,11 +466,21 @@ namespace Generator
                                     w.WriteLine($"                target.{m.Name} <- null;");
                                 }
                             }
+                            else if (bt.Name.EndsWith("Handler") || bt.Name.EndsWith("Handler`1") || bt.Name.EndsWith("Handler`2"))
+                            {
+                                w.WriteLine($"            let prevValueOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.BoundUniqueName}");
+                                w.WriteLine($"            match prevValueOpt, source.Try{m.BoundUniqueName} with");
+                                w.WriteLine($"            | Some prevValue, Some value when prevValue = value -> ()");
+                                w.WriteLine($"            | Some prevValue, Some value -> target.{m.Name}.RemoveHandler(prevValue); target.{m.Name}.AddHandler(value)");
+                                w.WriteLine($"            | None, Some value -> target.{m.Name}.AddHandler(value)");
+                                w.WriteLine($"            | Some prevValue, None -> target.{m.Name}.RemoveHandler(prevValue)");
+                                w.WriteLine($"            | None, None -> ()");
+                            }
                             else
                             {
-                                w.WriteLine($"            let prevValueOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.UniqueName}");
-                                w.WriteLine($"            match prevValueOpt, source.Try{m.UniqueName} with");
-                                w.WriteLine($"            | Some prevValue, Some value when prevValue = value-> ()");
+                                w.WriteLine($"            let prevValueOpt = match prevOpt with None -> None | Some prev -> prev.Try{m.BoundUniqueName}");
+                                w.WriteLine($"            match prevValueOpt, source.Try{m.BoundUniqueName} with");
+                                w.WriteLine($"            | Some prevValue, Some value when prevValue = value -> ()");
                                 w.WriteLine($"            | _, Some value -> target.{m.Name} <- value");
                                 w.WriteLine($"            | Some _, None -> target.{m.Name} <- {m.Default} // TODO: not always perfect, should set back to original default?");
                                 w.WriteLine($"            | None, None -> ()");
@@ -394,73 +489,57 @@ namespace Generator
                     }
                 }
                                 
-                w.WriteLine($"        new XamlElement(typeof<{t.FullName}>, create, apply, Map.ofArray attribs)");
+                w.WriteLine($"        new XamlElement(typeof<{tdef.FullName}>, create, apply, Map.ofArray attribs)");
 
             }
             w.WriteLine($"[<AutoOpen>]");
             w.WriteLine($"module XamlCreateExtensions = ");
             foreach (var type in bindings.Types)
             {
-                var t = type.Definition;
-                var h = GetHierarchy(type.Definition).ToList();
-                var bh = h.Select(x => bindings.Types.FirstOrDefault(y => y.Name == x.Item2.FullName))
+                var tdef = type.Definition;
+                var hierarchy = GetHierarchy(type.Definition).ToList();
+                var boundHierarchy = hierarchy.Select(x => bindings.Types.FirstOrDefault(y => y.Name == x.Item2.FullName))
                             .Where(x => x != null)
                             .ToList();
 
-                var ctor = t.Methods
+                var ctor = tdef.Methods
                     .Where(x => x.IsConstructor && x.IsPublic)
                     .OrderBy(x => x.Parameters.Count)
                     .FirstOrDefault();
 
-                if (!t.IsAbstract && ctor != null && ctor.Parameters.Count == 0)
+                if (!tdef.IsAbstract && ctor != null && ctor.Parameters.Count == 0)
                 {
                     w.WriteLine();
-                    w.WriteLine($"    /// Specifies a {t.Name} in the view description, initially with default attributes");
-                    w.WriteLine($"    let {Char.ToLower(t.Name[0])}{t.Name.Substring(1)} = Xaml.{t.Name}()");
+                    w.WriteLine($"    /// Specifies a {tdef.Name} in the view description, initially with default attributes");
+                    w.WriteLine($"    let {Char.ToLower(tdef.Name[0])}{tdef.Name.Substring(1)} = Xaml.{tdef.Name}()");
                 }
             }
             return w.ToString ();
         }
 
-        static TypeReference ResolveGenericParameter (TypeReference tref, IEnumerable<Tuple<TypeReference, TypeDefinition>> h)
+        static public TypeReference ResolveGenericParameter (TypeReference tref, IEnumerable<Tuple<TypeReference, TypeDefinition>> hierarchy)
         {
             if (tref == null)
                 return null;
             if (!tref.IsGenericParameter)
                 return tref;
             var q =
-                from b in h where b.Item1.IsGenericInstance
+                from b in hierarchy where b.Item1.IsGenericInstance
                 let ps = b.Item2.GenericParameters
                 let p = ps.FirstOrDefault(x => x.Name == tref.Name)
                 where p != null
                 let pi = ps.IndexOf(p)
                 let args = ((GenericInstanceType)b.Item1).GenericArguments
-                select ResolveGenericParameter (args[pi], h);
+                select ResolveGenericParameter (args[pi], hierarchy);
             return q.First ();
         }
 
-        static TypeReference GetListItemType (TypeReference tref, IEnumerable<Tuple<TypeReference, TypeDefinition>> h)
-        {
-            var r = ResolveGenericParameter (tref, h);
-            if (r == null)
-                return null;
-            if (r.FullName == "System.String")
-                return null;
-            if (r.Name == "IList`1" && r.IsGenericInstance) {
-                var args = ((GenericInstanceType)r).GenericArguments;
-                return ResolveGenericParameter (args[0], h);
-            }
-            else {
-                var bs = r.Resolve().Interfaces;
-                return bs.Select (b => GetListItemType (b.InterfaceType, h)).FirstOrDefault(b => b != null);
-            }
-        }
 
         static PropertyDefinition FindProperty(string name, TypeDefinition type)
         {
             var q =
-                from t in GetHierarchy(type)
-                from p in t.Item2.Properties
+                from tdef in GetHierarchy(type)
+                from p in tdef.Item2.Properties
                 where p.Name == name
                 select p;
             return q.FirstOrDefault ();
@@ -469,8 +548,8 @@ namespace Generator
         static EventDefinition FindEvent(string name, TypeDefinition type)
         {
             var q =
-                from t in GetHierarchy(type)
-                from p in t.Item2.Events
+                from tdef in GetHierarchy(type)
+                from p in tdef.Item2.Events
                 where p.Name == name
                 select p;
             return q.FirstOrDefault ();
