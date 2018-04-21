@@ -305,7 +305,7 @@ namespace Generator
                 w.WriteLine($"        /// Adjusts the {m.BoundUniqueName} property in the visual element");
                 var conv = string.IsNullOrWhiteSpace(m.Conv) ? "" : m.Conv;
                 var inputType = m.GetInputType(bindings, null);
-                w.WriteLine("        member x.With" + m.BoundUniqueName + "(value: " + inputType + ") = XamlElement(x.TargetType, x.CreateMethod, x.ApplyMethod, x.Attributes.Add(\"" + m.BoundUniqueName + "\", box (" + conv + "(value))))");
+                w.WriteLine("        member x." + m.BoundUniqueName + "(value: " + inputType + ") = XamlElement(x.TargetType, x.CreateMethod, x.ApplyMethod, x.Attributes.Add(\"" + m.BoundUniqueName + "\", box (" + conv + "(value))))");
             }
             w.WriteLine();
             foreach (var ms in allMembersInAllTypesGroupedByName)
@@ -314,10 +314,10 @@ namespace Generator
                 var inputType = m.GetInputType(bindings, null);
                 w.WriteLine();
                 w.WriteLine($"    /// Adjusts the {m.BoundUniqueName} property in the visual element");
-                w.WriteLine("    let with" + m.BoundUniqueName + " (value: " + inputType + ") (x: XamlElement) = x.With" + m.BoundUniqueName + "(value)");
+                w.WriteLine("    let with" + m.BoundUniqueName + " (value: " + inputType + ") (x: XamlElement) = x." + m.BoundUniqueName + "(value)");
                 w.WriteLine();
                 w.WriteLine($"    /// Adjusts the {m.BoundUniqueName} property in the visual element");
-                w.WriteLine("    let " + m.LowerBoundUniqueName + " (value: " + inputType + ") (x: XamlElement) = x.With" + m.BoundUniqueName + "(value)");
+                w.WriteLine("    let " + m.LowerBoundUniqueName + " (value: " + inputType + ") (x: XamlElement) = x." + m.BoundUniqueName + "(value)");
             }
             w.WriteLine();
             w.WriteLine("type Xaml() =");
@@ -386,7 +386,7 @@ namespace Generator
                     {
                         var bt = ResolveGenericParameter(m.BoundType, hierarchy);
                         string elementType = m.GetElementType(hierarchy);
-                        if (elementType != null)
+                        if (elementType != null && elementType != "obj")
                         {
                             w.WriteLine($"            match source.Try{m.BoundUniqueName} with");
                             w.WriteLine($"            | Some coll when coll <> null && coll.Length > 0 ->");
